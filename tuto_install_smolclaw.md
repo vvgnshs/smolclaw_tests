@@ -1,15 +1,14 @@
-
 # Tuto Smolclaw
 
-D'après @iMilnb https://github.com/NetBSDfr/smolBSD/blob/main/service/clawd/README.md et https://www.twitch.tv/videos/2724869684
+D'après @iMilnb https://github.com/NetBSDfr/smolBSD/blob/main/service/clawd/README.md et le stream https://www.twitch.tv/videos/2724869684
 
-Testé sous Ubuntu 24  
+Testé sous Ubuntu 24.04
 Driver nvidia : NVIDIA-SMI 575.57.08 ;  Driver Version: 575.57.08 ; CUDA Version: 12.9  
 Carte : NVIDIA RTX 2000 Ada Generation Laptop GPU 8Go de RAM  
 
 Modèles testés : https://huggingface.co/Jackrong/Qwen3.5-2B-Claude-4.6-Opus-Reasoning-Distilled-GGUF (et sa version 4B).
  
-L'objectif est de créer une microVM NetBSD contenant Picoclaw, de manière à créer des agents dans un conteneur sécurisé. Les modèles sont servis par la machine hôte avec llama.cpp ou llama-cpp-python (https://llama-cpp-python.readthedocs.io) 
+L'objectif est de créer une microVM NetBSD contenant Picoclaw, de manière à créer des agents dans un conteneur sécurisé. Les modèles sont servis par la machine hôte avec llama.cpp ou llama-cpp-python (https://llama-cpp-python.readthedocs.io).
 
 On installe également :  
 * un server IRC en local dans l'hôte pour ne pas avoir besoin d'une connexion web (le canal IRC est nécessaire pour Picoclaw). 
