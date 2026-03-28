@@ -998,7 +998,7 @@ RAW MODEL RESPONSE: {
   "id": "chatcmpl-86abe9aa-b913-4da3-a40f-4c31bac5e842",
   "object": "chat.completion",
   "created": 1774697549,
-  "model": "/home/vv102286/.cache/huggingface/hub/models--Jackrong--Qwen3.5-2B-Claude-4.6-Opus-Reasoning-Distilled-GGUF/snapshots/70b75bb7405ea59c69c43f1a89940303910ebe5b/./Qwen3.5-2B.Q4_K_S.gguf",
+  "model": "/home/vv/.cache/huggingface/hub/models--Jackrong--Qwen3.5-2B-Claude-4.6-Opus-Reasoning-Distilled-GGUF/snapshots/70b75bb7405ea59c69c43f1a89940303910ebe5b/./Qwen3.5-2B.Q4_K_S.gguf",
   "choices": [
     {
       "index": 0,
