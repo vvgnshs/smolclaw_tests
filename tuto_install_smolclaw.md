@@ -1,7 +1,7 @@
 
 # Tuto Smolclaw
 
-D'après @iMilnb [[https://github.com/NetBSDfr/smolBSD/blob/main/service/clawd/README.md]] et [[https://www.twitch.tv/videos/2724869684]]
+D'après @iMilnb https://github.com/NetBSDfr/smolBSD/blob/main/service/clawd/README.md et https://www.twitch.tv/videos/2724869684
 
 Testé sous Ubuntu 24  
 Driver nvidia : NVIDIA-SMI 575.57.08 ;  Driver Version: 575.57.08 ; CUDA Version: 12.9  
