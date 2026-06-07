@@ -18,7 +18,6 @@ Trois terminaux sont nécessaires : pour IRC, pour Smolclaw, pour le server llam
 
 ## Install llama.cpp
 
-Préférer l'installation des bindings python (```llama_cpp_python```, cf. ci-dessous), moins risquée.
 
 ### cuda-toolkit (nvcc)
 
@@ -50,12 +49,16 @@ export CUDACXX=/usr/local/cuda-12.9/bin/nvcc
 cmake --build llama.cpp/build --config Release -j 16 --clean-first --target llama-cli llama-mtmd-cli llama-server llama-gguf-split
 ```
 
+### télécharger et lancer un modèle
 ```
 ./llama.cpp/llama-server -hf Jackrong/Qwen3.5-4B-Claude-4.6-Opus-Reasoning-Distilled-GGUF:Q4_K_M -np 1 -fa on -c $((8192*4)) --cache-type-k q4_0 --cache-type-v q4_0 --port 8001 --host 0.0.0.0
 ```
 
 
-## Install llama_cpp_python 
+
+## Install avec llama_cpp_python 
+
+EDIT: ce script ne marche pas : les tools ne sont pas vraiment appelés. Sans doute un problème de chat template.
 
 Choix des bindings Python pour ne pas risquer de casser la configuration nvidia existante.  
 Création d'un script avec l'aide Qwen2.5-coder:14b sous ollama
@@ -234,7 +237,56 @@ $ curl -X POST "http://127.0.0.1:8003/chat/completions"      -H "Content-Type: a
 ### Config nginx (optionnel)
 
 Attention, ne pas oublier de remplacer l'url dans le fichier picoclaw config.json  
-Si on utilise nginx l'url pour Smolclaw est : 192.168.122.1/llama_cpp/chat/completions (vérifier avec ifconfig)
+Si on utilise nginx l'url pour Smolclaw est : 192.xxxx.1/llama_cpp/chat/completions (vérifier avec ifconfig)
+
+Config pour llama.cpp avec API key
+
+```
+map $http_authorization $blocked {
+    default                        1;  # block by default
+    "Bearer abcde12345"   0; 
+
+}
+
+server {
+    listen 80;
+    server_name vvgnshs.blabla ;
+    return 301 https://$host$request_uri;
+}
+
+# HTTPS server
+server {
+    listen 443 ssl;
+    server_name vvgnshs.blabla;
+
+    # SSL certificates (replace with your actual paths)
+    ssl_certificate /etc/acme/.../fullchain.pem ;
+    ssl_certificate_key /etc/acme/.../privkey.pem ;
+
+    auth_basic           "Restricted Access";
+    auth_basic_user_file /etc/.../.pw ;
+
+    location /pico/ {
+        auth_basic off;
+
+        # Reject if blocked or invalid key (map = 1 means blocked)
+        if ($blocked = 1) {
+            return 401; 
+        }
+        
+        proxy_pass http://127.0.0.1:8001/ ;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Authorization $http_authorization;
+    }
+}
+
+```
+
+
+Config pour script python
 
 ```
 log_format post_request '$remote_addr - $remote_user [$time_local] '
@@ -278,10 +330,10 @@ N.B.: si un firewall est actif penser à régler les ports (ufw allow 6667/tcp ?
 
 ```
 $ sudo apt install inspircd -y
-$ sudo nano /etc/inspircd/inspircd.conf # => <bind address="192.168.122.1" port="6667" type="clients">
+$ sudo nano /etc/inspircd/inspircd.conf # => <bind address="192.xx.xx.1" port="6667" type="clients">
 
 $ sudo service inspircd restart
-$ irssi # /connect 192.168.122.1 6667 ; /nick VV ; /join #VVchannel (création du channel)
+$ irssi # /connect 192.xx.xx.1 6667 ; /nick VV ; /join #VVchannel (création du channel)
 
 ```
 
@@ -289,17 +341,165 @@ $ irssi # /connect 192.168.122.1 6667 ; /nick VV ; /join #VVchannel (création d
 
 ### install 
 
-Hôte : ```ifconfig``` pour récupérer l'ip (192.168.122.X)
+Hôte : ```ifconfig``` pour récupérer l'ip (192.xx.xx.X)
+
+Avec une image existante :
 
 ```
 $ git clone https://github.com/NetBSDfr/smolBSD
 $ cd smolBSD
 $ ./smoler.sh pull clawd-amd64:latest
 $ ./startnb.sh -c 2 -m 1024 -f etc/clawd.conf -w ../pico_workspace/ -i clawd-amd64:latest # le dossier ../pico_workspace est accessible sur /mnt dans la vm
-$ curl -v 192.168.122.1:8003/chat/completions # vérifier que la microvm trouve l'hôte (ici sans nginx)
-$ curl -v 192.168.122.1/llama_cpp/chat/completions # vérifier que la microvm trouve l'hôte (ici avec nginx)
+$ curl -v 192.xx.xx.1:8003/chat/completions # vérifier que la microvm trouve l'hôte (ici sans nginx)
+$ curl -v 192.xx.xx.1/llama_cpp/chat/completions # vérifier que la microvm trouve l'hôte (ici avec nginx)
 $ picoclaw onboard # génère le fichier config
 ```
+
+OU : en utilisant le fichier Dockerfile.clawd
+
+
+
+```
+$ apt install picocom
+$ ./smoler.sh build smolerfiles/Dockerfile.clawd
+```
+
+édité pour ajouter de la mémoire (4096 M) et des applications (nano, tree) 
+
+```
+# smolClaw: run an picoclaw instance in a microVM
+#
+# build this service:
+# $ ./smoler.sh build smolerfiles/Dockerfile.clawd
+# run this service:
+# $ ./startnb.sh -c 2 -m 1024 -f etc/clawd.conf
+
+FROM base,etc,man,comp
+
+LABEL smolbsd.service=clawd
+# final image size
+LABEL smolbsd.imgsize=4096
+# default picoclaw gateway port and SSH access
+LABEL smolbsd.publish="18789:18789,18800:18800,2289:22"
+# microvm will use a pty as console
+LABEL smolbsd.use_pty="y"
+
+ARG PYVERS="314"
+# ripgrep, fd, jq and rsync for convenience and tool writing
+# w3m for dumping webpages, go and python for code check
+RUN pkgin up && pkgin -y in \
+	bash curl git-base gmake vim nano tree \
+	jq rsync ripgrep fd-find imapfilter socat gh \
+	w3m python${PYVERS} py${PYVERS}-pipx py${PYVERS}-pip py${PYVERS}-uv
+
+ENV NBUSER=clawd
+ENV NBHOME=/home/${NBUSER}
+ENV LANG=en_US.UTF-8
+ENV TERM=tmux-256color
+ENV MAXFILES=4096
+
+ARG GHARCH=$(uname -p|sed 's/aarch64/arm64/;s/arm$/arm64/')
+ARG GHREPO=https://github.com/sipeed/picoclaw/releases/download
+ARG GHRELEASE=v0.2.9
+
+RUN curl -L -s -o- ${GHREPO}/${GHRELEASE}/picoclaw_Netbsd_${GHARCH}.tar.gz | \
+	tar zxf - -C /usr/pkg/bin picoclaw picoclaw-launcher
+
+RUN <<EOF
+useradd -m ${NBUSER}
+chsh -s /usr/pkg/bin/bash ${NBUSER}
+mkdir -p ${NBHOME}/.tmux
+curl -s -Lo ${NBHOME}/.tmux/tmux-power.tmux \
+	https://raw.githubusercontent.com/wfxr/tmux-power/master/tmux-power.tmux
+sed -i'' 's/status-right "\$RS"/status-right ":: powered by 🚩 + smolBSD "/' \
+	${NBHOME}/.tmux/tmux-power.tmux
+chmod +x ${NBHOME}/.tmux/tmux-power.tmux
+
+# for convenience
+PYDOTVERS=3.${PYVERS#3}
+for p in python pip pipx uv- uvx-; do
+	ln -s /usr/pkg/bin/\${p}3.${PYVERS#3} /usr/pkg/bin/\${p%-}
+done
+EOF
+
+RUN cat <<EOF >${NBHOME}/.vimrc
+set nocompatible
+set ts=8
+set noai
+syntax on
+set mouse-=a
+
+noremap <C-t> :tabnew<CR>
+noremap <C-right> :tabnext<CR>
+noremap <C-left> :tabprevious<CR>
+noremap <C-l> :tabnext<CR>
+noremap <C-k> :tabprevious<CR>
+EOF
+
+RUN cat <<EOF >${NBHOME}/.tmux.conf
+set -g default-terminal "tmux-256color"
+set -g @tmux_power_theme "coral"
+set-option -g repeat-time 0
+unbind |
+bind | split-window -h
+unbind -
+bind - split-window -v
+run "~/.tmux/tmux-power.tmux"
+EOF
+
+RUN cat <<EOF >${NBHOME}/.bash_profile
+LIGHTGREEN="\033[92m"
+BOLD="\033[1m"
+NORMAL="\033[0m"
+
+PS1="[\w]@😈+🦞> "
+export PATH="\${PATH}:${NBHOME}/.local/bin:${NBHOME}/bin"
+export LANG="${LANG}"
+export TERM="${TERM}"
+alias vi=vim
+export EDITOR=vim
+EOF
+
+RUN cat <<'EOF' >>${NBHOME}/.bash_profile
+
+printf "
+---
+📝 the \${LIGHTGREEN}vim\${NORMAL} editor is available
+🪟 you are in a \${LIGHTGREEN}tmux\${NORMAL} multiplexer
+➡️  \${BOLD}setup picoclaw\${NORMAL}: \${LIGHTGREEN}picoclaw onboard\${NORMAL}
+➡️  \${BOLD}start picoclaw gateway\${NORMAL}: \${LIGHTGREEN}picoclaw gateway\${NORMAL}
+➡️  \${BOLD}or\${NORMAL}: \${LIGHTGREEN}picoclaw-launcher -public\${NORMAL} for a web GUI at http://127.0.0.1:18800
+➡️  \${LIGHTGREEN}ssh -p 2289 clawd@localhost\${NORMAL} to SSH to this microvm
+---
+
+"
+
+EOF
+
+# SSH access
+ARG SSH_PUBKEY="/mnt/share/ssh.pub"
+COPY ${SSH_PUBKEY} ${NBHOME}/.ssh/authorized_keys
+
+RUN [ -d "${NBHOME}/.ssh" ] && \
+    chown -R ${NBUSER} ${NBHOME} && \
+    chmod 755 ${NBHOME} && \
+    chmod -R go-rwx ${NBHOME}/.ssh
+
+RUN cat <<EOF >/etc/rc.local
+hostname ${NBUSER}
+ulimit -n ${MAXFILES}
+EOF
+
+RUN echo 'eval \$(resize)' >>/etc/rc.local
+
+EXPOSE 18800
+
+# script creates a pty, do not su - in order to get env vars
+CMD /etc/rc.d/sshd onestart && \
+	script -c "cd ${NBHOME} && su ${NBUSER} -c 'tmux -u new'" /dev/null || bash
+```
+
+
 
 
 ### config.json
@@ -315,7 +515,317 @@ Remarques:
 
 * Définir le modèle par défaut (```model_name``` doit correspondre à une entrée de ```model_list```)
 * Vérifier que les infos pour le canal IRC sont conformes au server local 
-* Les API keys, noms de modèles importent peu (sauf peut-être pour l'utilisation de llama.cpp?) 
+* Les API keys, noms de modèles importent peu (sauf peut-être pour l'utilisation de llama.cpp?)
+* 2 versions ci-dessous ; la version 3 nécessite l'ajout des API keys dans ~/.picoclaw/.security.yml (cf ci-dessous)
+
+```
+.security.yml
+
+channel_list:
+  irc:
+    settings: {}
+  line:
+    settings: {}
+  onebot:
+    settings: {}
+  pico:
+    settings:
+      token: 123456abcde
+model_list:
+  qwen-ganesh:
+    api_keys:
+      - "123456abcde"
+  lmstudio"
+  lmstudio-local:0: {}
+  local-model:0: {}
+  mistral-small:0: {}
+web:
+  brave: {}
+  tavily: {}
+  gemini: {}
+  perplexity: {}
+  glm_search: {}
+  baidu_search: {}
+skills:
+  registries: {}
+
+
+
+
+{
+  "session": {
+    "dimensions": [
+      "chat"
+    ]
+  },
+  "version": 3,
+  "isolation": {},
+  "agents": {
+    "defaults": {
+      "workspace": "/home/clawd/.picoclaw/workspace",
+      "restrict_to_workspace": true,
+      "allow_read_outside_workspace": false,
+      "provider": "",
+      "model_name": "qwen-vvgnshs",
+      "max_tokens": 32768,
+      "max_tool_iterations": 50,
+      "summarize_message_threshold": 20,
+      "summarize_token_percent": 75,
+      "steering_mode": "one-at-a-time",
+      "subturn": {
+        "max_depth": 0,
+        "max_concurrent": 0,
+        "default_timeout_minutes": 0,
+        "default_token_budget": 0,
+        "concurrency_timeout_sec": 0
+      },
+      "tool_feedback": {
+        "enabled": false,
+        "max_args_length": 300,
+        "separate_messages": false
+      },
+      "split_on_marker": false,
+      "turn_profile": {
+        "enabled": false,
+        "history": {},
+        "system_prompt": {},
+        "skills": {},
+        "tools": {}
+      },
+      "max_llm_retries": 2,
+      "llm_retry_backoff_secs": 2
+    }
+  },
+  "evolution": {
+    "min_task_count": 2,
+    "min_success_ratio": 0.7
+  },
+  "channel_list": {
+"irc": {
+      "enabled": true,
+      "type": "irc",
+      "reasoning_channel_id": "",
+      "group_trigger": {},
+      "typing": {},
+      "placeholder": {
+        "enabled": false
+      },
+      "settings": {
+	"allow_from": ["VV"],
+        "channels": ["#VVchannel"],
+        "nick": "picoclaw_VV",
+        "server": "192.xxxx.1:6667",
+        "tls": false
+      }
+    },
+
+    "pico": {
+      "enabled": true,
+      "type": "pico",
+      "reasoning_channel_id": "",
+      "group_trigger": {},
+      "typing": {},
+      "placeholder": {
+        "enabled": false
+      },
+      "settings": {
+        "streaming": {
+          "enabled": true
+        },
+        "ping_interval": 30,
+        "read_timeout": 60,
+        "write_timeout": 10,
+        "max_connections": 100
+      }
+    }
+  },
+  "model_list": [
+    {
+      "model_name": "qwen-vvgnshs",
+      "model": "openai/qwen",
+      "api_base": "https://vvgnshs.blabla/pico/",
+      "request_timeout": 300
+    }
+  ],
+  "gateway": {
+    "host": "localhost",
+    "port": 18800,
+    "hot_reload": false,
+    "log_level": "warn"
+  },
+  "events": {
+    "logging": {
+      "enabled": true,
+      "include": [
+        "agent.*"
+      ],
+      "min_severity": "info"
+    }
+  },
+  "hooks": {
+    "enabled": true,
+    "defaults": {
+      "observer_timeout_ms": 500,
+      "interceptor_timeout_ms": 5000,
+      "approval_timeout_ms": 60000
+    }
+  },
+  "tools": {
+    "allow_read_paths": null,
+    "allow_write_paths": null,
+    "filter_sensitive_data": true,
+    "filter_min_length": 8,
+    "web": {
+      "enabled": true,
+      "brave": {
+        "enabled": false,
+        "max_results": 5
+      },
+      "tavily": {
+        "enabled": false,
+        "base_url": "",
+        "max_results": 5
+      },
+      "duckduckgo": {
+        "enabled": false,
+        "max_results": 5
+      },
+      "glm_search": {
+        "enabled": false,
+        "base_url": "https://open.bigmodel.cn/api/paas/v4/web_search",
+        "search_engine": "search_std",
+        "max_results": 5
+      },
+      "provider": "auto",
+      "prefer_native": true,
+      "fetch_limit_bytes": 10485760,
+      "format": "plaintext"
+    },
+    "cron": {
+      "enabled": true,
+      "exec_timeout_minutes": 5,
+      "allow_command": true
+    },
+    "exec": {
+      "enabled": true,
+      "enable_deny_patterns": true,
+      "allow_remote": true,
+      "custom_deny_patterns": null,
+      "custom_allow_patterns": null,
+      "timeout_seconds": 60
+    },
+    "skills": {
+      "enabled": true,
+      "registries": {
+        "clawhub": {
+          "base_url": "https://clawhub.ai",
+          "enabled": true
+        },
+        "github": {
+          "base_url": "https://github.com",
+          "enabled": true
+        }
+      },
+      "github": {},
+      "max_concurrent_searches": 2,
+      "search_cache": {
+        "max_size": 50,
+        "ttl_seconds": 300
+      }
+    },
+    "media_cleanup": {
+      "enabled": true,
+      "max_age_minutes": 30,
+      "interval_minutes": 5
+    },
+    "mcp": {
+      "enabled": false,
+      "discovery": {
+        "enabled": false,
+        "ttl": 5,
+        "max_search_results": 5,
+        "use_bm25": true,
+        "use_regex": false
+      },
+      "max_inline_text_chars": 16384
+    },
+    "append_file": {
+      "enabled": true
+    },
+    "edit_file": {
+      "enabled": true
+    },
+    "find_skills": {
+      "enabled": true
+    },
+    "i2c": {
+      "enabled": false
+    },
+    "install_skill": {
+      "enabled": true
+    },
+    "list_dir": {
+      "enabled": true
+    },
+    "load_image": {
+      "enabled": true
+    },
+    "message": {
+      "enabled": true
+    },
+    "read_file": {
+      "enabled": true,
+      "mode": "bytes",
+      "max_read_file_size": 65536
+    },
+    "serial": {
+      "enabled": false
+    },
+    "send_file": {
+      "enabled": true
+    },
+    "send_tts": {
+      "enabled": false
+    },
+    "spawn": {
+      "enabled": true
+    },
+    "spawn_status": {
+      "enabled": false
+    },
+    "spi": {
+      "enabled": false
+    },
+    "subagent": {
+      "enabled": true
+    },
+    "web_fetch": {
+      "enabled": true
+    },
+    "write_file": {
+      "enabled": true
+    }
+  },
+  "heartbeat": {
+    "enabled": true,
+    "interval": 30
+  },
+  "devices": {
+    "enabled": false,
+    "monitor_usb": true
+  },
+  "voice": {
+    "echo_transcription": false
+  },
+  "build_info": {
+    "version": "0.2.9",
+    "git_commit": "2992eccb",
+    "build_time": "2026-05-29T13:32:13Z",
+    "go_version": "1.25.10"
+  }
+}
+```
+
 
 ```
 {
@@ -351,7 +861,7 @@ Remarques:
   "channels": {
     "irc": {
       "enabled": true,
-      "server": "192.168.122.1:6667",
+      "server": "192.xx.xx.1:6667",
       "tls": false,
       "nick": "smolclaw_vv",
       "sasl_user": "",
@@ -370,21 +880,21 @@ Remarques:
     {
       "model_name": "qwen llama.cpp",
       "model": "openai/Jackrong/Qwen3.5-2B-Claude-4.6-Opus-Reasoning-Distilled-GGUF:Q4_K_S",
-      "api_base": "http://192.168.122.1:8001/v1",
+      "api_base": "http://192.xx.xx.1:8001/v1",
       "api_key": "llamacpp",
       "request_timeout": 300
     },
     {
       "model_name": "qwen llama_cpp_python",
       "model": "openai/qwen",
-      "api_base": "http://192.168.122.1:8003",
+      "api_base": "http://192.xx.xx.1:8003",
       "api_key": "llamacpppython",
       "request_timeout": 300
     },
     {
       "model_name": "qwen llama_cpp_python + nginx",
       "model": "openai/qwen",
-      "api_base": "http://192.168.122.1/llama_cpp",
+      "api_base": "http://192.xx.xx.1/llama_cpp",
       "api_key": "llama_cpp_python_nginx",
       "request_timeout": 300
     }
@@ -543,7 +1053,7 @@ Remarques:
 }
 ```
 
-### Exemple de requête Picoclaw et sa réponse
+### Exemple de requête Picoclaw et sa réponse (ici il manque les tool_calls...)
 
 Sortie dans le terminal où est lancé ```llama_cpp_server.py```
 
